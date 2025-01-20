@@ -1,4 +1,3 @@
-library(shiny)
 library(ggplot2)
 library(dplyr)
 library(quantmod)
@@ -6,6 +5,7 @@ library(plotly)
 library(shinyjs)
 library(glmnet)
 library(PerformanceAnalytics)
+
 
 # UI
 ui <- fluidPage(
@@ -53,14 +53,12 @@ ui <- fluidPage(
                    h4("3. Linear Regression Prediction"),
                    p("A basic linear regression model to predict future prices based on historical data."),
                    plotOutput("regressionPlotMethods", height = "400px"),
-                   div(textOutput("rSquaredLinear"), style = "text-align: center; font-style: italic; color: #666;")
                  ),
                  div(
                    h4("4. Ridge Regression"),
                    p("A regression technique that applies a penalty to reduce overfitting."),
                    sliderInput("ridgeAlpha", "Ridge Alpha:", min = 0.01, max = 10, value = 1, step = 0.01),
                    plotOutput("ridgePlot", height = "400px"),
-                   div(textOutput("rSquaredRidge"), style = "text-align: center; font-style: italic; color: #666;")
                  ),
                  
                  # Lasso Regression Section
@@ -69,22 +67,18 @@ ui <- fluidPage(
                    p("A regression technique that applies a penalty to shrink some coefficients to zero, useful for feature selection."),
                    sliderInput("lassoAlpha", "Lasso Alpha:", min = 0.01, max = 10, value = 1, step = 0.01),
                    plotOutput("lassoPlot", height = "400px"),
-                   div(textOutput("rSquaredLasso"), style = "text-align: center; font-style: italic; color: #666;")
-                   
                  ),
                  div(
                    h4("6. Quantum Regression"),
                    p("A regression model that uses Quantum Bootstrapped means to predict future prices."),
                    plotOutput("quantumRegressionPlot", height = "400px"),
-                   div(textOutput("rSquaredQuantum"), style = "text-align: center; font-style: italic; color: #666;")
-                 ),
-
         ),
         tabPanel("Risk/Reward Calculator",
                  plotOutput("cumulativeReturnPlot", height = "400px"),
                  div(h4("Understanding Risk & Reward", style = "text-align: center; color: #999;")),
                  h3("Risk/Reward Metrics"),
                  tableOutput("riskMetrics"),
+                 ),
         ),
         tabPanel("Data Summary",
                  div(id = "data-summary",
@@ -105,7 +99,9 @@ ui <- fluidPage(
       ),
       
       div(textOutput("debugText"), style = "font-size: 12px; color: red;"),
-      
+      div(style = "text-align: center; font-style: italic; color: #666;",
+          textOutput("rSquaredText")
+      ),
       
       tags$footer(
         "Made with ❤️ by HollyTech",
@@ -121,7 +117,17 @@ server <- function(input, output) {
   
   observeEvent(input$runSim, {
     # Fetch real stock data
-    stock_data <- getSymbols(input$ticker, src = "yahoo", auto.assign = FALSE)
+    stock_data <- tryCatch({
+      getSymbols(input$ticker, src = "yahoo", auto.assign = FALSE)
+    }, error = function(e) {
+      NULL
+    })
+    
+    if (is.null(stock_data)) {
+      showNotification("Error: Could not fetch data for the selected ticker.", type = "error")
+      return()
+    }
+    
     stock_close <- Cl(stock_data)
     
     # Quantum Bootstrapping
@@ -177,6 +183,14 @@ server <- function(input, output) {
       Cl(stock_data)  # Return closing prices
     })
     
+    rSquaredValues <- reactiveValues(
+      linear = NA,
+      ridge = NA,
+      lasso = NA,
+      quantum = NA
+    )
+    
+    
     # Reactive Data Summary
     output$dataSummary <- renderPrint({
       stock_close <- stock_prices()  # Get the reactive stock data
@@ -201,6 +215,14 @@ server <- function(input, output) {
         labs(title = paste("Closing Prices for", input$ticker),
              x = "Date", y = "Price ($)")
     })
+    
+    output$rSquaredText <- renderText({
+      paste("Linear R²:", round(rSquaredValues$linear, 3),
+            "| Ridge R²:", round(rSquaredValues$ridge, 3),
+            "| Lasso R²:", round(rSquaredValues$lasso, 3),
+            "| Quantum R²:", round(rSquaredValues$quantum, 3))
+    })
+    
     # Perform a linear regression on closing prices
     output$regressionPlot <- renderPlot({
       stock_close <- stock_prices()
@@ -211,6 +233,7 @@ server <- function(input, output) {
       
       # Calculate R²
       rSquaredLinear <- summary(lm_model)$r.squared
+      rSquaredValues$linear <- rSquaredLinear
       
       # Plot
       ggplot(df, aes(x = Date, y = Price)) +
@@ -256,6 +279,8 @@ server <- function(input, output) {
       ss_total <- sum((Y - mean(Y))^2)
       ss_residual <- sum((Y - ridge_preds)^2)
       rSquaredRidge <- 1 - (ss_residual / ss_total)
+      rSquaredValues$ridge <- rSquaredRidge
+      
       # Plot
       ggplot() +
         geom_line(aes(x = days_since_start, y = Y), color = "blue", size = 1) +
@@ -286,6 +311,8 @@ server <- function(input, output) {
       ss_total <- sum((Y - mean(Y))^2)
       ss_residual <- sum((Y - lasso_preds)^2)
       rSquaredLasso <- 1 - (ss_residual / ss_total)
+      rSquaredValues$lasso <- rSquaredLasso
+      
       # Plot
       ggplot() +
         geom_line(aes(x = days_since_start, y = Y), color = "blue", size = 1) +
@@ -397,4 +424,6 @@ server <- function(input, output) {
 
 # Run the App
 shinyApp(ui, server)
+
+
 
